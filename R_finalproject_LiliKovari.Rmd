@@ -1,0 +1,261 @@
+---
+title: "R_finalproject_LiliKovari"
+author: "Lili Kővári"
+date: "2023-12-18"
+output: html_document
+---
+
+## R initialization
+-------------------
+
+```{r}
+library(tidyverse)
+library(psych)
+library(ggplot2)
+library(forcats)
+library(broom)
+library(ggfortify)
+library(stargazer)
+library(stringr)
+library(afex)
+library(multcomp)
+library(ggsignif)
+library(emmeans)
+library(stats)
+library(openxlsx)
+library(ggpubr)
+library(nortest)
+library(nparLD) # since one may never know which package will be needed...
+```
+
+## The data
+-----------
+
+I chose the "UFO sightings" dataset which contains informations about perceived UFOs from all around the world.
+
+```{r}
+data <- read_csv("ufo_sightings.csv")
+view(data)
+str(data)
+```
+
+After importing the data, we can see that it's quite a big file with more than 96 000 reported sightings.
+12 variables are included, in the followings, we will have a look at each in detail.
+
+### date
+
+```{r}
+min(data$reported_date_time)
+max(data$reported_date_time)
+min(data$posted_date)
+max(data$posted_date)
+
+dataa <- data %>%
+  mutate(reported_year=format(reported_date_time, format="%Y"), posted_year=format(posted_date, format="%Y")) # extracting year information
+datae <- dataa %>%
+  mutate(diff_date=as.numeric(posted_year)-as.numeric(reported_year)) # calculating difference between the above-received variables
+view(datae)
+mean(datae$diff_date)
+max(datae$diff_date)
+
+daypart <- table(datae$day_part)
+daypartsort <- daypart[order(daypart,decreasing = TRUE)]
+daypartsort # summary of the dayparts
+```
+
+The first reported sighting was in 1925, while the latest occurred in 2023 - 7 months ago! 
+Interestingly, the earliest date of posting these sightings was in 1998 which was not even the first ever sighting
+which indicates that there were huge, even 93 years long delays in posting these, with an average of almost 2,5 years.
+As for the day parts, according to the data, most "visits" took time in the night, while the least in the dawn
+
+### location
+
+```{r}
+length(unique(data$country_code)) # how many countries
+length(unique(data$state)) # how many states
+length(unique(data$city)) # how many cities
+
+country <- table(datae$country_code)
+countrysort <- country[order(country,decreasing = TRUE)]
+countrysort # summary of countries
+
+nonus <- datae %>%
+  filter(country_code!="US")
+length(nonus$country_code) # a non-us subset
+us <- datae %>%
+  filter(country_code=="US")
+length(unique(us$state)) # an only-us subset
+state <- table(us$state)
+statesort <- state[order(state,decreasing = TRUE)]
+statesort # summary of the us states
+
+ca <- us %>%
+  filter(state=="CA")
+length(unique(ca$city))
+cacity <- table(ca$city)
+cacitysort <- cacity[order(cacity,decreasing = TRUE)]
+cacitysort
+min(ca$reported_year)
+max(ca$reported_year) # summary from only California
+
+uscity <- table(us$city)
+uscitysort <- uscity[order(uscity,decreasing = TRUE)] 
+uscities <- uscitysort[1:10]
+uscities # top 10 most "visited" only us cities
+nonuscity <- table(nonus$city)
+nonuscitysort <- nonuscity[order(nonuscity,decreasing = TRUE)] 
+nonuscities <- nonuscitysort[1:10]
+nonuscities # top 10 most "visited" non-us cities
+```
+
+We have reports from 152 countries, 685 states and 10 721 cities. US has the most sightings with 88 213 cases, consequently, only 8216 cases were documented from the rest of the world. Pretty biased.
+As we investigate the data only from the US, we can see that all (52) states are represented, meaning that all
+the US has had sightings, yet most of them were registered from CA, the least from FL. In CA, in the time range of 1928 until
+nowadays, 839 cities had cases, most of them from Los Angeles with 518 instances, followed by San Diego with 479. However, in the US, the most occurences were reported from New York (667), making Los Angeles only the 6th most "visited" cities in the US.
+In the rest of the world, somewhat lower case numbers can be detected with the most "popular" Toronto (268).
+
+### the phenomenon
+
+```{r}
+shape <- table(dataful$shape)
+shapesort <- shape[order(shape,decreasing = TRUE)]
+shapesort # summary of shapes
+sum(is.na(datae$shape)) # how many NA values
+
+dataful <- datae %>% 
+  drop_na() 
+summary(dataful)
+nrow(dataful)
+view(dataful) # summary of the NA-eliminated dataest
+
+(mean(dataful$duration_seconds))/60 # duration in minutes
+((max(dataful$duration_seconds))/60)/60 # duration in hours
+
+datafull <- dataful %>%
+  mutate(desc=nchar(summary)) # creatnig a column containing the character counts extracted from column summary
+view(datafull)
+mean(datafull$desc)
+max(datafull$desc) # summary of the modified dataset
+
+img <- table(datafull$has_images)
+img # summary of having pictures
+```
+
+Regarding the phenomenon per se, most occurences were reported as some form of light (18 907 cases), but a total of 2039 instances have no data of the shape.
+Therefore, it is worth making a subset which excludes cases with any kind of missing information. This way, we have
+91 810 left, so after modifying the upper code, we can re-investigate the shapes, yet it shows almost the same pattern. 
+People have a huge imagination when it comes to describing ufo shapes... as for the duration of the phenomenon, they were an
+average of 181 minutes long, not to mention the longest one was reported being 72 hours long!
+Reports include summaries too, short descriptions of the phenomenons. When inspecting the length of these descriptions, 
+we can see an average of ~82 characters, with the longest of 135 characters. 
+There is no such report that would have had pictures - data does not reveal what kind of image it is, it can be either any 
+kind of photograph of the phenomenon itself or just it indicates if the report within this dataset involves pictures. Nevertheless, in this regard, this column has no relevance.
+
+## Visualization
+----------------
+
+```{r}
+### the 10 most "visited" countries with the most "visited" dayparts in the world
+
+pops <- as.factor(datafull$country_code)
+freq <- pops %>%
+  fct_lump(10) %>%
+  table() 
+freq[1:10] # the most ufo-popular countries
+
+freqs <- datafull %>%
+  filter(country_code %in% c("AU", "BR", "CA", "GB", "IN", "MX", "NL", "NZ", "US", "ZA"))
+view(freqs) # data to be plotted
+length(freqs$country_code) # still have 90 658 entries
+
+occ <- freqs %>% 
+  group_by(country_code) %>%   
+  mutate(occurences = n())
+view(occ) # number of occurences to plot
+
+plot1 <- ggplot(occ, aes(x = reorder(country_code,-occurences, decreasing=TRUE), fill = day_part))+
+  geom_histogram(stat="count")+
+  coord_flip()+
+  labs(title = "The 10 most reported countries with parts of the day", fill = "part of the day", x = NULL, y = "number of sightings")+
+  scale_y_continuous(trans='log10')
+plot1
+
+### duration and description detail in the US
+
+usa <- datafull %>%
+  filter(country_code=="US")
+view(usa)
+summary(usa) # we make a subset of the NA-less dataset restricted to only the us
+
+class(usa$desc)
+usa$desc <- as.numeric(usa$desc)
+class(usa$desc) # since our newly created desc variable was a list, we convert it to numeric
+
+plot2 <- ggplot(usa, aes(x=desc, y=duration_seconds, color=shape))+
+  geom_point()+
+  labs(title = "The duration and description detail of reported sightings in the USA", color = "shape", x = "description detail", y = "duration in seconds")+
+ scale_x_continuous(trans='log10')+
+  scale_y_continuous(trans='log10')
+plot2
+```
+
+Plot 1 shows the distribution of sightings with the first 10 countries that have the most reports, showing the parts of the day in which they were detected.
+Plot 2 shows the length of the description and the duration of the phenomenon, aligned with the reported shape in the USA.
+
+## A hypothesis
+---------------
+
+According to Plot 2, in the USA, where most sightings are from, there may be a relationship between the length of the description and the duration of the phenomenon.
+We assume that the length of the description from the phenomenon reflects the saliency of the event, and is associated with more detailed memory formed from the perceived phenomenon, which may be rooted in the longer exposure to the event itself.
+Therefore, our hypothesis is that the duration of the event correlates with the length of the description of the event.
+
+## Testing the hypothesis
+-------------------------
+
+```{r}
+# descriptives
+
+mean(usa$desc) # mean length of the description is ~82 characters
+sd_desc <- sd(usa$desc, na.rm = TRUE)
+se_desc <- sd(usa$desc, na.rm = TRUE)/sqrt(sum(complete.cases(usa$desc)))
+sd_desc # standard deviation is ~37,64
+se_desc # standard error of the mean is ~0,13
+mean(usa$duration_seconds) # mean duration time is ~10 864 seconds
+sd_duration <- sd(usa$duration_seconds, na.rm = TRUE)
+se_duration <- sd(usa$duration_seconds, na.rm = TRUE)/sqrt(sum(complete.cases(usa$duration_seconds)))
+sd_duration # standard deviation is ~73 218
+se_duration # standard error of the mean is ~251,45
+
+# normality 
+
+descplot <- ggdensity(usa$desc, main = "Density plot of description length", xlab = "number of characters")
+descplot # visual normality check for desc, indicating violation of normal distribution
+durplot <- ggdensity(usa$duration_seconds, main = "Density plot of duration length", xlab = "duration in seconds")
+durplot # visual normality check for dur, indicating violation of normal distribution
+
+nortest::lillie.test(usa$desc) # p value of Lilliefors (Kolmogorov-Smirnov) test is below .05 
+nortest::lillie.test(usa$duration_seconds) # p value of Lilliefors (Kolmogorov-Smirnov) test is below .05 
+
+# spearman correlation
+
+des <- usa$desc
+dur <- usa$duration_seconds
+
+corr <-cor.test(des, dur,  method = "spearman")
+corr # S = 9.8767e+13, p-value = 4.514e-16, rho = 0.02789404
+
+ggscatter(usa, x = "desc", y = "duration_seconds", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "spearman",
+          xlab = "number of characters", ylab = "duration in seconds") # visualizing the correlation
+
+plot(des,dur, main="Scatter plot", xlab="number of characters", ylab="duration in seconds", pch=19)
+abline(lm(des~dur), col="black") # another visualization
+
+```
+
+## Results & discussion
+-----------------------
+
+This dataset includes several informations about UFO sightings from all around the world. Based on our exploratory data analysis, we can infer that most occurences were detected in the United States, therefore we limited the further analyses to that country. Based on the EDA, we hypothesised a relationship between the sightings' descprition length and the sightings' reported duration, consequently, we assumed a positive correlation between the number of characters of such descriptions and the duration of the sightings in seconds.
+Since the normality of the data was violated, we computed a Spearman’s correlation coefficient in order to determine the relationship between number of characters in descriptions and the sighting durations in seconds. Results indicate a significant yet positive weak relationship with rho = 0.028, p < .001. Thus, we can reject the null hypothesis but we can not conclude that there would be a strong relationship between the sightings' descprition length and the sightings' reported duration. Our results do not support our hypothesis, namely, we can not state that the longer exposure to such phenomenons would manifest in more detailed, longer verbal summaries of such events.
